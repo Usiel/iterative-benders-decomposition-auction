@@ -38,11 +38,21 @@ class Auction:
             secondTerm -= assignment.valuation
         print('phi %s' % -(phi + secondTerm))
         if -(phi + secondTerm) - self.solver.z.x < epsilon:
+            self.printResults()
             return False
         else:
             self.allocations.append(allocation)
-            self.solver.addBendersCut(allocation)
+            self.solver.addBendersCut(allocation, len(self.allocations))
             return True
+
+    def printResults(self):
+        for index, alloc in enumerate(self.allocations, start=1):
+            print 'X%s:' % index,
+            for assignment in alloc:
+                print '%s <- ' % assignment.agentId,
+                for item in assignment.items:
+                    print '%s, ' % item,
+            print ''
 
 
 
@@ -64,7 +74,7 @@ class BendersSolver:
         self.m.update()
 
         #Initial constraints for empty allocation
-        self.m.addConstr(self.z, GRB.LESS_EQUAL, LinExpr(self.b, self.priceVars.values() + self.utilityVars.values()))
+        self.m.addConstr(self.z, GRB.LESS_EQUAL, LinExpr(self.b, self.priceVars.values() + self.utilityVars.values()), name="X0")
         self.m.setObjective(self.z, GRB.MAXIMIZE)
 
     @property
@@ -84,7 +94,7 @@ class BendersSolver:
         for l in self.m.getConstrs():
             print('%s %g' % (l.constrName, l.Pi))
 
-    def addBendersCut(self, allocation):
+    def addBendersCut(self, allocation, name):
         #valuations summed up
         expr = LinExpr(self.b, self.priceVars.values() + self.utilityVars.values())
         for a in allocation:
@@ -93,7 +103,7 @@ class BendersSolver:
             for item in a.items:
                 expr.addTerms(-1, self.priceVars[item])
 
-        self.m.addConstr(self.z, GRB.LESS_EQUAL, expr)
+        self.m.addConstr(self.z, GRB.LESS_EQUAL, expr, name='X%s' % name)
         #self.m.write("out.lp")
 
 class NisanDemandQueryApproximator:
@@ -154,10 +164,10 @@ class Agent:
                     bestValuePerItem = valuePerItem
         return bestItemSet
 
-items = ["A", "B"]
-agent1 = Agent(items, [(["A"], 6.), (["B"], 6.), (["A", "B"], 6.)], 1)
-agent2 = Agent(items, [(["A"], 1.), (["B"], 1.), (["A", "B"], 5.)], 2)
-agent3 = Agent(items, [(["A"], 3.), (["B"], 1.), (["A", "B"], 3.)], 3)
+items = ["A", "B", "C"]
+agent1 = Agent(items, [(["A"], 6.), (["B"], 6.), (["A", "B"], 6.), (["C"], 6.), (["A", "B", "C"], 7.), (["B", "C"], 6.)], 1)
+agent2 = Agent(items, [(["A"], 1.), (["B"], 1.), (["A", "B"], 5.), (["C"], 1.), (["A", "B", "C"], 5.), (["B", "C"], 2.)], 2)
+agent3 = Agent(items, [(["A"], 3.), (["B"], 1.), (["A", "B"], 3.), (["C"], 4.), (["A", "B", "C"], 8.), (["B", "C"], 4.)], 3)
 agents = [agent1, agent2, agent3]
 a = Auction(items, agents)
 
