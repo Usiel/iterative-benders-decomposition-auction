@@ -1,5 +1,6 @@
 import math
 from gurobipy.gurobipy import GRB, Model, quicksum, LinExpr
+import itertools
 import numpy as np
 
 __author__ = 'Usiel'
@@ -36,10 +37,13 @@ class Auction:
                 secondTerm += self.solver.prices[item]
             secondTerm += self.solver.utilities[assignment.agentId]
             secondTerm -= assignment.valuation
-        print('phi %s' % -(phi + secondTerm))
-        if -(phi + secondTerm) - self.solver.z.x < epsilon:
+        print 'phi %s' % (phi + secondTerm)
+
+        # check if phi with current result of master-problem is z
+        if math.fabs(phi + secondTerm + self.solver.z.x) < epsilon:
             self.printResults()
             return False
+        # otherwise continue and add cut based on this iteration's allocation
         else:
             self.allocations.append(allocation)
             self.solver.addBendersCut(allocation, len(self.allocations))
@@ -92,8 +96,10 @@ class BendersSolver:
             print('%s %g' % (v.varName, v.x))
 
         for l in self.m.getConstrs():
-            print('%s %g' % (l.constrName, l.Pi))
+            if l.Pi > 0:
+                print('%s %g' % (l.constrName, l.Pi))
 
+    # adds another cut z <= wb - ((c + wA)* X)
     def addBendersCut(self, allocation, name):
         #valuations summed up
         expr = LinExpr(self.b, self.priceVars.values() + self.utilityVars.values())
@@ -119,7 +125,9 @@ class NisanDemandQueryApproximator:
         itemsPool = self.items[:]
         agentsPool = self.agents[:]
         allocation = []
+        summedValuation = 0
 
+        #as done in Nisan 200x
         while itemsPool and agentsPool:
             queryResponses = dict()
             perItemValues = dict()
@@ -132,13 +140,21 @@ class NisanDemandQueryApproximator:
                         perItemValues[agent.id] = (queryResponses[agent.id][0] + utilities[agent.id] + price)/len(queryResponses[agent.id][1])
             if perItemValues:
                 maximalPerItemValueAgentId = max(perItemValues.iterkeys(), key=(lambda key: perItemValues[key]))
-                for item in queryResponses[agent.id][1]:
-                    itemsPool.remove(item)
+                for i in queryResponses[maximalPerItemValueAgentId][1]:
+                    itemsPool = [item for item in itemsPool if item != i]
                 agentsPool = [agent for agent in agentsPool if agent.id != maximalPerItemValueAgentId]
                 allocation.append(Assignment(queryResponses[maximalPerItemValueAgentId][1], maximalPerItemValueAgentId, queryResponses[maximalPerItemValueAgentId][0]))
-                print("Item(s) %s to Agent %s with valuation %s" % (queryResponses[maximalPerItemValueAgentId][1], maximalPerItemValueAgentId, queryResponses[maximalPerItemValueAgentId][0]))
+                summedValuation += queryResponses[maximalPerItemValueAgentId][0]
             else:
                 break
+
+        #check if assigning all items to one agent is better
+        for agent in self.agents:
+            valuation = agent.valueQuery(self.items[:])
+            if valuation > summedValuation:
+                summedValuation = valuation
+                allocation = [Assignment(self.items[:], agent.id, valuation)]
+
 
         return allocation
 
@@ -164,10 +180,21 @@ class Agent:
                     bestValuePerItem = valuePerItem
         return bestItemSet
 
-items = ["A", "B", "C"]
-agent1 = Agent(items, [(["A"], 6.), (["B"], 6.), (["A", "B"], 6.), (["C"], 6.), (["A", "B", "C"], 7.), (["B", "C"], 6.)], 1)
-agent2 = Agent(items, [(["A"], 1.), (["B"], 1.), (["A", "B"], 5.), (["C"], 1.), (["A", "B", "C"], 5.), (["B", "C"], 2.)], 2)
-agent3 = Agent(items, [(["A"], 3.), (["B"], 1.), (["A", "B"], 3.), (["C"], 4.), (["A", "B", "C"], 8.), (["B", "C"], 4.)], 3)
+    def valueQuery(self, items):
+        valuation = itertools.ifilter(lambda x: set(x[0]) == set(items), self.valuations).next()
+        if valuation:
+            return valuation[1]
+        return None
+
+
+items = ["A", "B"]
+agent1 = Agent(items, [(["A"], 6.), (["B"], 6.), (["A", "B"], 6.)], 1)
+agent2 = Agent(items, [(["A"], 1.), (["B"], 1.), (["A", "B"], 5.)], 2)
+agent3 = Agent(items, [(["A"], 3.), (["B"], 1.), (["A", "B"], 3.)], 3)
+#items = ["A", "B", "C"]
+#agent1 = Agent(items, [(["A"], 6.), (["B"], 6.), (["A", "B"], 6.), (["C"], 6.), (["A", "B", "C"], 6.), (["B", "C"], 6.)], 1)
+#agent2 = Agent(items, [(["A"], 1.), (["B"], 1.), (["A", "B"], 4.), (["C"], 1.), (["A", "B", "C"], 10.), (["B", "C"], 2.)], 2)
+#agent3 = Agent(items, [(["A"], 3.), (["B"], 1.), (["A", "B"], 3.), (["C"], 4.), (["A", "B", "C"], 15.), (["B", "C"], 4.)], 3)
 agents = [agent1, agent2, agent3]
 a = Auction(items, agents)
 
