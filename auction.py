@@ -16,7 +16,7 @@ class Auction:
         self.b = [(1. / self.approximator.gap) for i in range(0, len(self.agents))]
         self.b.append(self.supply / self.approximator.gap)
         self.solver = BendersSolver(self.b, self.agents)
-        self.allocations = []
+        self.allocations = {'X0': []}
 
     def iterate(self):
         self.solver.optimize()
@@ -32,18 +32,19 @@ class Auction:
 
         # check if phi with current result of master-problem is z
         if phi >= self.solver.z.x:
-            self.printResults()
+            self.print_results()
             return False
         # otherwise continue and add cut based on this iteration's allocation
         else:
-            self.allocations.append(allocation)
-            self.solver.addBendersCut(allocation, len(self.allocations))
+            allocationName = 'X%s' % len(self.allocations)
+            self.allocations[allocationName] = allocation
+            self.solver.addBendersCut(allocation, allocationName)
             return True
 
-    def printResults(self):
-        for index, alloc in enumerate(self.allocations, start=1):
-            print 'X%s:' % index
-            for assignment in alloc:
+    def print_results(self):
+        for item in self.allocations.iteritems():
+            print '%s (%s)' % (item[0], self.solver.m.getConstrByName(item[0]).pi)
+            for assignment in item[1]:
                 assignment.print_me()
             print ''
 
@@ -94,7 +95,7 @@ class BendersSolver:
             expr.addTerms(-1, self.utilityVars[a.agent_id])
             expr.addTerms(-a.quantity, self.price_var)
 
-        self.m.addConstr(self.z, GRB.LESS_EQUAL, expr, name='X%s' % name)
+        self.m.addConstr(self.z, GRB.LESS_EQUAL, expr, name=name)
         # self.m.write("out.lp")
 
 
@@ -106,8 +107,6 @@ class LaviSwamyGreedyApproximator:
     @property
     def gap(self):
         return 2.
-
-    def approximate
 
     def approximate(self, price, utilities):
         left_supply = self.supply
