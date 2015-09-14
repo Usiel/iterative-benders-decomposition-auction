@@ -153,8 +153,14 @@ class NisanDemandQueryApproximator:
             valuation = agent.valueQuery(self.items[:])
             if valuation > summedValuation:
                 summedValuation = valuation
-                allocation = [Assignment(self.items[:], agent.id, valuation)]
+                #allocation = [Assignment(self.items[:], agent.id, valuation)]
 
+
+        for assignment in allocation:
+            print '%s <- ' % assignment.agentId,
+            for item in assignment.items:
+                print '%s, ' % item,
+        print ''
 
         return allocation
 
@@ -184,7 +190,7 @@ class Agent:
         valuation = itertools.ifilter(lambda x: set(x[0]) == set(items), self.valuations).next()
         if valuation:
             return valuation[1]
-        return None
+        return 0
 
 
 items = ["A", "B"]
