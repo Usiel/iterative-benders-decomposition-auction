@@ -5,7 +5,7 @@ import numpy as np
 
 __author__ = 'Usiel'
 
-epsilon = 0.0001
+epsilon = 1e-3
 
 
 class Auction:
@@ -31,7 +31,7 @@ class Auction:
         print 'phi = %s - %s = %s' % (first_term, second_term, phi)
 
         # check if phi with current result of master-problem is z
-        if phi >= self.solver.z.x:
+        if np.allclose(phi, self.solver.z.x):
             self.print_results()
             return False
         # otherwise continue and add cut based on this iteration's allocation
@@ -47,6 +47,7 @@ class Auction:
             for assignment in item[1]:
                 assignment.print_me()
             print ''
+        print '%s iterations needed' % len(self.allocations)
 
 
 class BendersSolver:
@@ -122,10 +123,8 @@ class LaviSwamyGreedyApproximator:
                 demand = agent.query_demand(price, left_supply)
                 if demand:
                     query_responses[agent.id] = demand
-                    if (query_responses[agent.id].valuation - utilities[agent.id] - query_responses[agent.id].quantity * price) > 0:
-                        per_item_values[agent.id] = (
-                                                    query_responses[agent.id].valuation - utilities[agent.id] - price) / \
-                                                    query_responses[agent.id].quantity
+                    if query_responses[agent.id].valuation - utilities[agent.id] - query_responses[agent.id].quantity * price > epsilon:
+                        per_item_values[agent.id] = (query_responses[agent.id].valuation - utilities[agent.id] - query_responses[agent.id].quantity * price) / query_responses[agent.id].quantity
             if per_item_values:
                 maximal_per_item_value_agent_id = max(per_item_values.iterkeys(),
                                                       key=(lambda key: per_item_values[key]))
@@ -159,7 +158,7 @@ class Assignment:
         self.valuation = valuation
 
     def print_me(self):
-        print 'Agent %s receives %s item(s)' % (self.agent_id, self.quantity)
+        print 'Agent %s receives %s item(s) (v_%s(%s)=%s)' % (self.agent_id, self.quantity, self.agent_id, self.quantity, self.valuation)
 
 
 class Valuation:
@@ -175,13 +174,13 @@ class Agent:
 
     def query_demand(self, price, left_supply):
         best_valuation = None
-        best_value_per_item = None
+        best_utility = None
         for valuation in self.valuations:
             if valuation.quantity <= left_supply:
-                value_per_item = (valuation.valuation - valuation.quantity * price) / valuation.quantity
-                if value_per_item > 0. and value_per_item > best_value_per_item:
+                utility = valuation.valuation - valuation.quantity * price
+                if utility > 0. and utility > best_utility:
                     best_valuation = valuation
-                    best_value_per_item = value_per_item
+                    best_utility = utility
         return best_valuation
 
     def query_value(self, quantity):
@@ -191,11 +190,38 @@ class Agent:
         return None
 
 
-agent1 = Agent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 6.)], 1)
-agent2 = Agent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 2)
-agent3 = Agent([Valuation(1, 0.), Valuation(2, 1.), Valuation(3, 1.), Valuation(4, 1.)], 3)
-agents = [agent1, agent2, agent3]
-a = Auction(4, agents)
+def next_agent_id():
+    next_agent_id.counter += 1
+    return next_agent_id.counter
+next_agent_id.counter = 0
+
+
+class RandomizedAgent(Agent):
+    def __init__(self, supply):
+        self.id = next_agent_id()
+        self.supply = supply
+        self.valuations = []
+
+        print 'Agent %s:' % self.id
+        for i in range(1, supply+1):
+            previous_valuation = 0
+            if i > 1:
+                previous_valuation = self.valuations[i-2].valuation
+            self.valuations.append(Valuation(i, previous_valuation + np.random.exponential(5.0)))
+            print 'v(%s)=%s' % (self.valuations[i-1].quantity, self.valuations[i-1].valuation)
+
+
+
+def generateRandomizedAgents(supply, agentsCount):
+    return [RandomizedAgent(supply) for i in range(0, agentsCount)]
+
+#agent1 = Agent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 6.)], 1)
+#agent2 = Agent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 2)
+#agent3 = Agent([Valuation(1, 0.), Valuation(2, 1.), Valuation(3, 1.), Valuation(4, 1.)], 3)
+#agents = [agent1, agent2, agent3]
+supply = 10
+agents = generateRandomizedAgents(supply, 20)
+a = Auction(supply, agents)
 
 flag = True
 while flag:
