@@ -158,20 +158,38 @@ class LaviSwamyGreedyApproximator:
         """
         return 2.
 
-    def approximate(self, price, utilities, ):
+    def calculate_social_welfare(self, allocation):
+        return sum(a.valuation for a in allocation)
+
+    def approximate(self, price, utilities):
         """
         Approximates on current price and utilities vector
         :param price: Current price.
         :param utilities: Dict of utilities for each agent (agent_id being the key).
         :return:
         """
+        allocation = self.allocate(self.agents[:], price, utilities)
+
+        optimal_with_agent = self.calculate_social_welfare(allocation)
+        for assignment in allocation:
+            optimal_without_agent = self.calculate_social_welfare(
+                self.allocate(
+                    [agent for agent in self.agents if agent.id != assignment.agent_id],
+                    price,
+                    utilities))
+            assignment.vcg_price = optimal_without_agent - optimal_with_agent
+
+        for assignment in allocation:
+            assignment.print_me()
+
+        return allocation
+
+    def allocate(self, agents, price, utilities):
         left_supply = self.supply
-        agents_pool = self.agents[:]
         allocation = []
+        agents_pool = agents[:]
         summed_valuations = 0
-
         demands = dict()
-
         # as done in Lavi & Swamy 2005 mostly
         while agents_pool and left_supply > 0:
             query_responses = dict()
@@ -192,7 +210,7 @@ class LaviSwamyGreedyApproximator:
             # if there was any demand we look for the agent with the maximal per-item-value
             if per_item_values:
                 best_agent_id = max(per_item_values.iterkeys(),
-                                                      key=(lambda key: per_item_values[key]))
+                                    key=(lambda key: per_item_values[key]))
 
                 # we allocate the items to the agent, therefore we remove these from the supply
                 left_supply -= query_responses[best_agent_id].quantity
@@ -207,25 +225,10 @@ class LaviSwamyGreedyApproximator:
             else:
                 break
 
-        for agent in self.agents:
-            # exclude current agent
-            left_supply = self.supply
-            per_item_values = [((demand[1].valuation - utilities[demand[0]] - demand[1].quantity * price) /
-                               demand[1].quantity, demand[1].valuation)
-                               for demand in demands.iteritems() if demand[0] != agent.id]
-            per_item_values.sort(key=lambda t: t[0])
-            total_valuation_without_agent = 0
-            while per_item_values and left_supply > 0:
-                total_valuation_without_agent += per_item_values.pop()[1]
-
         # check if assigning all items to one agent is better
-        for agent in self.agents:
+        for agent in agents:
             valuation = agent.query_value(self.supply)
             if valuation.valuation - utilities[agent.id] - self.supply * price > summed_valuations:
                 summed_valuations = valuation.valuation
                 allocation = [Assignment(self.supply, agent.id, valuation.valuation)]
-
-        for assignment in allocation:
-            assignment.print_me()
-
         return allocation

@@ -1,3 +1,5 @@
+import math
+
 __author__ = 'Usiel'
 
 
@@ -27,7 +29,7 @@ class Assignment:
         """
         Prints out assignment to console.
         """
-        print 'Agent %s receives %s item(s) (v_%s(%s)=%s)' % \
-              (self.agent_id, self.quantity, self.agent_id, self.quantity, self.valuation)
+        print 'Agent %s receives %s item(s) (v_%s(%s)=%s) and pays %s' % \
+              (self.agent_id, self.quantity, self.agent_id, self.quantity, self.valuation, math.fabs(self.vcg_price))
 
 epsilon = 1e-3
