@@ -20,7 +20,6 @@ class Auction:
         self.b.append(self.supply / self.approximator.gap)
         self.solver = BendersSolver(self.b, self.agents)
         self.allocations = {'X0': []}
-        self.prices = None
 
     def iterate(self):
         """
@@ -29,6 +28,11 @@ class Auction:
         and then compares this with current z value.
         :return: False if auction is done and True if a Bender's cut has been added and the auction continues.
         """
+        iteration = len(self.allocations)
+
+        print ''
+        print '######## ITERATION %s ########' % iteration
+
         self.solver.optimize()
         # allocation := X
         allocation = self.approximator.approximate(self.solver.price, self.solver.utilities)
@@ -48,16 +52,14 @@ class Auction:
 
         # check if phi with current result of master-problem is z (with tolerance)
         if math.fabs(phi - self.solver.z.x) < epsilon:
-            # calculate prices
-            self.prices = self.solver.get_vcg_prices()
             self.print_results()
 
+            # for checking we solve the program in round
             OptimalSolver(self.supply, self.agents, self.approximator.gap)
-
             return False
         # otherwise continue and add cut based on this iteration's allocation
         else:
-            allocation_name = 'X%s' % len(self.allocations)
+            allocation_name = 'X%s' % iteration
             self.allocations[allocation_name] = allocation
             self.solver.add_benders_cut(allocation, allocation_name)
             return True
@@ -66,6 +68,9 @@ class Auction:
         """
         Prints results in console.
         """
+        print ''
+        print '####### SUMMARY #######'
+        print ''
         for item in self.allocations.iteritems():
             # noinspection PyArgumentList
             print '%s (%s)' % (item[0], self.solver.m.getConstrByName(item[0]).pi)
@@ -74,7 +79,11 @@ class Auction:
             print ''
 
         for agent in self.agents:
-            print 'Agent %s pays %s per item' % (agent.id, self.prices[agent.id])
+            vcg_price = sum(self.solver.m.getConstrByName(alloc[0]).pi *
+                            sum([assignment.vcg_price for assignment in alloc[1] if assignment.agent_id == agent.id])
+                            for alloc in self.allocations.iteritems())
+            if vcg_price > 0:
+                print 'Agent %s E[payment]=%s' % (agent.id, vcg_price)
 
         if self.solver.price_changed:
             print 'Price has decreased at some point.'
@@ -82,14 +91,18 @@ class Auction:
         print 'E[Social welfare] is %s' % -self.solver.z.x
 
 
+# example used in paper
 agent1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 6.)], 1)
 agent2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 2)
 agent3 = ManualAgent([Valuation(1, 0.), Valuation(2, 1.), Valuation(3, 1.), Valuation(4, 1.)], 3)
 auction_agents_m = [agent1, agent2, agent3]
 
-auction_supply = 4
-auction_agents = generate_randomized_agents(auction_supply, 9)
-a = Auction(auction_supply, auction_agents_m)
+# automatically generated
+auction_supply = 40
+auction_agents = generate_randomized_agents(auction_supply, 90)
+#a = Auction(auction_supply, auction_agents)
+
+a = Auction(4, auction_agents_m)
 
 flag = True
 while flag:

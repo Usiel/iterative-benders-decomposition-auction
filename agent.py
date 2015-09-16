@@ -21,9 +21,9 @@ class ManualAgent:
         """
         self.id = identifier if identifier else next_agent_id()
         self.valuations = valuations
-        print 'Agent %s:' % self.id
-        for v in self.valuations:
-            print 'v(%s)=%s' % (v.quantity, v.valuation)
+        # print 'Agent %s:' % self.id
+        # for v in self.valuations:
+        #     print 'v(%s)=%s' % (v.quantity, v.valuation)
 
     def query_demand(self, price, left_supply):
         """

@@ -66,7 +66,7 @@ class BendersSolver:
         if current_price > self.price:
             self.price_changed = True
 
-        for v in self.m.getVars():
+        for v in [v for v in self.m.getVars() if v.x != 0.]:
             print('%s %g' % (v.varName, v.x))
 
         for l in self.m.getConstrs():
@@ -92,21 +92,11 @@ class BendersSolver:
 
         self.m.addConstr(self.z, GRB.LESS_EQUAL, expr, name=name)
 
-    def get_vcg_prices(self):
-        vcg_prices = dict()
-        # NOT sufficient. Needs to be adapted.
-        for agent in self.agents:
-            model_copy = self.m.copy()
-            model_copy.remove(model_copy.getVarByName('u_%s' % agent.id))
-            model_copy.update()
-            model_copy.optimize()
-
-            vcg_prices[agent.id] = -self.price_var.x
-        return vcg_prices
-
-
 class OptimalSolver:
     def __init__(self, supply, agents, gap):
+        print ''
+        print 'Optimal Solver:'
+
         self.m = Model("multi-unit-auction")
         self.m.params.LogToConsole = 0
         self.allocation_vars = dict()
@@ -130,12 +120,12 @@ class OptimalSolver:
         self.m.update()
 
         self.m.optimize()
-        print 'Optimal solution:'
-        for v in self.m.getVars():
-            print('%s %g' % (v.varName, v.x))
-        for l in self.m.getConstrs():
-            if l.Pi > 0:
-                print('%s %g' % (l.constrName, l.Pi))
+        # print 'Optimal solution:'
+        # for v in self.m.getVars():
+        #     print('%s %g' % (v.varName, v.x))
+        # for l in self.m.getConstrs():
+        #     if l.Pi > 0:
+        #         print('%s %g' % (l.constrName, l.Pi))
         print 'OPT social welfare %s | %s/%s=%s' % (self.m.getObjective().getValue(), self.m.getObjective().getValue(), gap, self.m.getObjective().getValue()/gap)
 
         self.m.write('optimal-lp.lp')
@@ -177,7 +167,9 @@ class LaviSwamyGreedyApproximator:
                     [agent for agent in self.agents if agent.id != assignment.agent_id],
                     price,
                     utilities))
-            assignment.vcg_price = optimal_without_agent - optimal_with_agent
+            other_agents_valuations = sum([a.valuation for a in allocation if a.agent_id != assignment.agent_id])
+            vcg_payoff = optimal_with_agent - optimal_without_agent
+            assignment.vcg_price = optimal_without_agent - other_agents_valuations
 
         for assignment in allocation:
             assignment.print_me()
