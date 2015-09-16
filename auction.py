@@ -1,8 +1,8 @@
 import math
 
-from agent import generate_randomized_agents
-from common import epsilon
-from solver import BendersSolver, LaviSwamyGreedyApproximator
+from agent import generate_randomized_agents, ManualAgent
+from common import epsilon, Valuation
+from solver import BendersSolver, LaviSwamyGreedyApproximator, OptimalSolver
 
 __author__ = 'Usiel'
 
@@ -20,6 +20,7 @@ class Auction:
         self.b.append(self.supply / self.approximator.gap)
         self.solver = BendersSolver(self.b, self.agents)
         self.allocations = {'X0': []}
+        self.prices = None
 
     def iterate(self):
         """
@@ -47,7 +48,12 @@ class Auction:
 
         # check if phi with current result of master-problem is z (with tolerance)
         if math.fabs(phi - self.solver.z.x) < epsilon:
+            # calculate prices
+            self.prices = self.solver.get_vcg_prices()
             self.print_results()
+
+            OptimalSolver(self.supply, self.agents, self.approximator.gap)
+
             return False
         # otherwise continue and add cut based on this iteration's allocation
         else:
@@ -66,18 +72,24 @@ class Auction:
             for assignment in item[1]:
                 assignment.print_me()
             print ''
+
+        for agent in self.agents:
+            print 'Agent %s pays %s per item' % (agent.id, self.prices[agent.id])
+
+        if self.solver.price_changed:
+            print 'Price has decreased at some point.'
         print '%s iterations needed' % len(self.allocations)
         print 'E[Social welfare] is %s' % -self.solver.z.x
 
 
-# agent1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 6.)], 1)
-# agent2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 2)
-# agent3 = ManualAgent([Valuation(1, 0.), Valuation(2, 1.), Valuation(3, 1.), Valuation(4, 1.)], 3)
-# auction_agents = [agent1, agent2, agent3]
+agent1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 6.)], 1)
+agent2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 2)
+agent3 = ManualAgent([Valuation(1, 0.), Valuation(2, 1.), Valuation(3, 1.), Valuation(4, 1.)], 3)
+auction_agents_m = [agent1, agent2, agent3]
 
-auction_supply = 10
-auction_agents = generate_randomized_agents(auction_supply, 10)
-a = Auction(auction_supply, auction_agents)
+auction_supply = 4
+auction_agents = generate_randomized_agents(auction_supply, 9)
+a = Auction(auction_supply, auction_agents_m)
 
 flag = True
 while flag:

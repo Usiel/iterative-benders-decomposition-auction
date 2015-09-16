@@ -12,7 +12,7 @@ class Valuation:
 
 
 class Assignment:
-    def __init__(self, quantity, agent_id, valuation):
+    def __init__(self, quantity, agent_id, valuation, vcg_price=None):
         """
         :param quantity: Quantity assigned to agent.
         :param agent_id: Agent identifier this assignment concerns.
@@ -21,6 +21,7 @@ class Assignment:
         self.quantity = quantity
         self.agent_id = agent_id
         self.valuation = valuation
+        self.vcg_price = vcg_price
 
     def print_me(self):
         """

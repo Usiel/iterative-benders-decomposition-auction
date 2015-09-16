@@ -103,3 +103,5 @@ $RECYCLE.BIN/
 *.name
 .idea/modules.xml
 *.xml
+optimal-lp.lp
+*.sol
