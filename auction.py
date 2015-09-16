@@ -1,208 +1,108 @@
 import math
-from gurobipy.gurobipy import GRB, Model, quicksum, LinExpr
-import itertools
-import numpy as np
+
+from agent import generate_randomized_agents, ManualAgent
+from common import epsilon, Valuation
+from solver import BendersSolver, LaviSwamyGreedyApproximator, OptimalSolver
 
 __author__ = 'Usiel'
 
-epsilon = 0.0001
 
 class Auction:
-    def __init__(self, items, agents):
-        self.items = items
+    def __init__(self, supply, agents):
+        """
+        :param supply: Number of copies of identical item.
+        :param agents: List of agents to participate. Need to implement query_demand(.) and query_value(.).
+        """
+        self.supply = supply
         self.agents = agents
-        self.approximator = NisanDemandQueryApproximator(self.items, self.agents)
-        self.b = [(1./self.approximator.gap) for i in range(0, len(self.items) + len(self.agents))]
-        self.solver = BendersSolver(self.b, self.items, self.agents)
-        self.allocations = []
-
-#    @property
-#    def prices(self):
-#        return self.w[1:len(self.items)+1]
-
-#    @property
-#    def utilities(self):
-#        return self.w[len(self.items)-1:]
+        self.approximator = LaviSwamyGreedyApproximator(self.supply, self.agents)
+        self.b = [(1. / self.approximator.gap) for i in range(0, len(self.agents))]
+        self.b.append(self.supply / self.approximator.gap)
+        self.solver = BendersSolver(self.b, self.agents)
+        self.allocations = {'X0': []}
 
     def iterate(self):
-        self.solver.optimize()
-        allocation = self.approximator.approximate(self.solver.prices, self.solver.utilities)
-        phi = sum([(-1)*w*b for w,b in zip(self.solver.prices.values() + self.solver.utilities.values(), self.b)])
-        secondTerm = 0
-        for assignment in allocation:
-            #assignment[0] = items
-            #assignment[1][0] = agent.id
-            #assignment[1][1] = v_i(item)
-            for item in assignment.items:
-                secondTerm += self.solver.prices[item]
-            secondTerm += self.solver.utilities[assignment.agentId]
-            secondTerm -= assignment.valuation
-        print 'phi %s' % (phi + secondTerm)
+        """
+        Performs one iteration of the Bender Auction. Optimizes current master problem, requests an approximate \
+        allocation based on current prices and utilities, calculates phi with current optimal values of master problem \
+        and then compares this with current z value.
+        :return: False if auction is done and True if a Bender's cut has been added and the auction continues.
+        """
+        iteration = len(self.allocations)
 
-        # check if phi with current result of master-problem is z
-        if math.fabs(phi + secondTerm + self.solver.z.x) < epsilon:
-            self.printResults()
+        print ''
+        print '######## ITERATION %s ########' % iteration
+
+        self.solver.optimize()
+        # allocation := X
+        allocation = self.approximator.approximate(self.solver.price, self.solver.utilities)
+
+        # first_term - second_term = w*b - (c + wA) * X
+        # first_term is w*b
+        first_term = sum([-w * b for w, b in zip(self.solver.utilities.values() + [self.solver.price], self.b)])
+        # second_term is (c + wA) * X
+        second_term = 0
+        for assignment in allocation:
+            # for each x_ij which is 1 we generate c + wA which is (for MUA): v_i(j) + price * j + u_i
+            second_term += self.solver.price * assignment.quantity
+            second_term += -self.solver.utilities[assignment.agent_id]
+            second_term += assignment.valuation
+        phi = first_term - second_term
+        print 'phi = %s - %s = %s' % (first_term, second_term, phi)
+
+        # check if phi with current result of master-problem is z (with tolerance)
+        if math.fabs(phi - self.solver.z.x) < epsilon:
+            self.print_results()
+
+            # for checking we solve the program in round
+            OptimalSolver(self.supply, self.agents, self.approximator.gap)
             return False
         # otherwise continue and add cut based on this iteration's allocation
         else:
-            self.allocations.append(allocation)
-            self.solver.addBendersCut(allocation, len(self.allocations))
+            allocation_name = 'X%s' % iteration
+            self.allocations[allocation_name] = allocation
+            self.solver.add_benders_cut(allocation, allocation_name)
             return True
 
-    def printResults(self):
-        for index, alloc in enumerate(self.allocations, start=1):
-            print 'X%s:' % index,
-            for assignment in alloc:
-                print '%s <- ' % assignment.agentId,
-                for item in assignment.items:
-                    print '%s, ' % item,
+    def print_results(self):
+        """
+        Prints results in console.
+        """
+        print ''
+        print '####### SUMMARY #######'
+        print ''
+        for item in self.allocations.iteritems():
+            # noinspection PyArgumentList
+            print '%s (%s)' % (item[0], self.solver.m.getConstrByName(item[0]).pi)
+            for assignment in item[1]:
+                assignment.print_me()
             print ''
 
-
-
-class BendersSolver:
-    def __init__(self, b, items, agents):
-        self.m = Model("master-problem")
-        self.z = self.m.addVar(lb=-GRB.INFINITY, ub=GRB.INFINITY, name="z")
-        self.b = b
-        self.items = items
-        self.agents = agents
-
-        self.priceVars = dict()
-        for item in self.items:
-            self.priceVars[item] = self.m.addVar(lb=-GRB.INFINITY, ub=0, name="p_%s" % item)
-        self.utilityVars = dict()
         for agent in self.agents:
-            self.utilityVars[agent.id] = self.m.addVar(lb=-GRB.INFINITY, ub=0, name="u_%s" % agent.id)
+            vcg_price = sum(self.solver.m.getConstrByName(alloc[0]).pi *
+                            sum([assignment.vcg_price for assignment in alloc[1] if assignment.agent_id == agent.id])
+                            for alloc in self.allocations.iteritems())
+            if vcg_price > 0:
+                print 'Agent %s E[payment]=%s' % (agent.id, vcg_price)
 
-        self.m.update()
-
-        #Initial constraints for empty allocation
-        self.m.addConstr(self.z, GRB.LESS_EQUAL, LinExpr(self.b, self.priceVars.values() + self.utilityVars.values()), name="X0")
-        self.m.setObjective(self.z, GRB.MAXIMIZE)
-
-    @property
-    def prices(self):
-        return dict((v[0], v[1].x) for v in self.priceVars.iteritems())
-
-    @property
-    def utilities(self):
-        return dict((v[0], v[1].x) for v in self.utilityVars.iteritems())
-
-    def optimize(self):
-        #self.m.update()
-        self.m.optimize()
-        for v in self.m.getVars():
-            print('%s %g' % (v.varName, v.x))
-
-        for l in self.m.getConstrs():
-            if l.Pi > 0:
-                print('%s %g' % (l.constrName, l.Pi))
-
-    # adds another cut z <= wb - ((c + wA)* X)
-    def addBendersCut(self, allocation, name):
-        #valuations summed up
-        expr = LinExpr(self.b, self.priceVars.values() + self.utilityVars.values())
-        for a in allocation:
-            expr.addConstant(-a.valuation)
-            expr.addTerms(-1, self.utilityVars[a.agentId])
-            for item in a.items:
-                expr.addTerms(-1, self.priceVars[item])
-
-        self.m.addConstr(self.z, GRB.LESS_EQUAL, expr, name='X%s' % name)
-        #self.m.write("out.lp")
-
-class NisanDemandQueryApproximator:
-    def __init__(self, items, agents):
-        self.items = items
-        self.agents = agents
-
-    @property
-    def gap(self):
-        return min(len(self.agents), 4*math.sqrt(len(self.items)))
-
-    def approximate(self, prices, utilities):
-        itemsPool = self.items[:]
-        agentsPool = self.agents[:]
-        allocation = []
-        summedValuation = 0
-
-        #as done in Nisan 200x
-        while itemsPool and agentsPool:
-            queryResponses = dict()
-            perItemValues = dict()
-            for agent in agentsPool:
-                demand = agent.queryDemand(prices, itemsPool[:])
-                if demand:
-                    queryResponses[agent.id] = demand
-                    price = sum([prices[item] for item in demand[1]])
-                    if ((queryResponses[agent.id][0] + utilities[agent.id] + price)) > 0:
-                        perItemValues[agent.id] = (queryResponses[agent.id][0] + utilities[agent.id] + price)/len(queryResponses[agent.id][1])
-            if perItemValues:
-                maximalPerItemValueAgentId = max(perItemValues.iterkeys(), key=(lambda key: perItemValues[key]))
-                for i in queryResponses[maximalPerItemValueAgentId][1]:
-                    itemsPool = [item for item in itemsPool if item != i]
-                agentsPool = [agent for agent in agentsPool if agent.id != maximalPerItemValueAgentId]
-                allocation.append(Assignment(queryResponses[maximalPerItemValueAgentId][1], maximalPerItemValueAgentId, queryResponses[maximalPerItemValueAgentId][0]))
-                summedValuation += queryResponses[maximalPerItemValueAgentId][0]
-            else:
-                break
-
-        #check if assigning all items to one agent is better
-        for agent in self.agents:
-            valuation = agent.valueQuery(self.items[:])
-            if valuation > summedValuation:
-                summedValuation = valuation
-                #allocation = [Assignment(self.items[:], agent.id, valuation)]
+        if self.solver.price_changed:
+            print 'Price has decreased at some point.'
+        print '%s iterations needed' % len(self.allocations)
+        print 'E[Social welfare] is %s' % -self.solver.z.x
 
 
-        for assignment in allocation:
-            print '%s <- ' % assignment.agentId,
-            for item in assignment.items:
-                print '%s, ' % item,
-        print ''
+# example used in paper
+agent1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 6.)], 1)
+agent2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 2)
+agent3 = ManualAgent([Valuation(1, 0.), Valuation(2, 1.), Valuation(3, 1.), Valuation(4, 1.)], 3)
+auction_agents_m = [agent1, agent2, agent3]
 
-        return allocation
+# automatically generated
+auction_supply = 40
+auction_agents = generate_randomized_agents(auction_supply, 90)
+#a = Auction(auction_supply, auction_agents)
 
-class Assignment:
-    def __init__(self, items, agentId, valuation):
-        self.items = items
-        self.agentId = agentId
-        self.valuation = valuation
-
-class Agent:
-    def __init__(self, items, valuations, id):
-        self.id = id
-        self.valuations = valuations
-
-    def queryDemand(self, prices, items):
-        bestItemSet = None
-        bestValuePerItem = None
-        for valuation in self.valuations:
-            if all(item in items for item in valuation[0]):
-                valuePerItem = (valuation[1] + sum([prices[i] for i in valuation[0]]))/len(valuation[0])
-                if valuePerItem > bestValuePerItem:
-                    bestItemSet = (valuation[1], valuation[0])
-                    bestValuePerItem = valuePerItem
-        return bestItemSet
-
-    def valueQuery(self, items):
-        valuation = itertools.ifilter(lambda x: set(x[0]) == set(items), self.valuations).next()
-        if valuation:
-            return valuation[1]
-        return 0
-
-
-items = ["A", "B"]
-agent1 = Agent(items, [(["A"], 6.), (["B"], 6.), (["A", "B"], 6.)], 1)
-agent2 = Agent(items, [(["A"], 1.), (["B"], 1.), (["A", "B"], 5.)], 2)
-agent3 = Agent(items, [(["A"], 3.), (["B"], 1.), (["A", "B"], 3.)], 3)
-#items = ["A", "B", "C"]
-#agent1 = Agent(items, [(["A"], 6.), (["B"], 6.), (["A", "B"], 6.), (["C"], 6.), (["A", "B", "C"], 6.), (["B", "C"], 6.)], 1)
-#agent2 = Agent(items, [(["A"], 1.), (["B"], 1.), (["A", "B"], 4.), (["C"], 1.), (["A", "B", "C"], 10.), (["B", "C"], 2.)], 2)
-#agent3 = Agent(items, [(["A"], 3.), (["B"], 1.), (["A", "B"], 3.), (["C"], 4.), (["A", "B", "C"], 15.), (["B", "C"], 4.)], 3)
-agents = [agent1, agent2, agent3]
-a = Auction(items, agents)
+a = Auction(4, auction_agents_m)
 
 flag = True
 while flag:
