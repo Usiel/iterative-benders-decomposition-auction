@@ -31,8 +31,7 @@ class BendersSolver:
         self.m.update()
 
         # Initial constraints for empty allocation
-        self.m.addConstr(self.z, GRB.LESS_EQUAL, LinExpr(self.b, self.utility_vars.values() + [self.price_var]),
-                         name="X0")
+        self.add_benders_cut([], "X0")
         self.m.setObjective(self.z, GRB.MAXIMIZE)
 
         self.price_changed = False
@@ -91,6 +90,8 @@ class BendersSolver:
             # we get v_i(j) + u_i + j * price summed over all i,j where x_ij = 1
 
         self.m.addConstr(self.z, GRB.LESS_EQUAL, expr, name=name)
+        # make sure price does not decrease
+        self.m.addConstr(self.price_var, GRB.LESS_EQUAL, -self.price if self.price else 0.)
 
 class OptimalSolver:
     def __init__(self, supply, agents, gap):

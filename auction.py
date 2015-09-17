@@ -98,11 +98,11 @@ agent3 = ManualAgent([Valuation(1, 0.), Valuation(2, 1.), Valuation(3, 1.), Valu
 auction_agents_m = [agent1, agent2, agent3]
 
 # automatically generated
-auction_supply = 40
-auction_agents = generate_randomized_agents(auction_supply, 90)
-#a = Auction(auction_supply, auction_agents)
+auction_supply = 14
+auction_agents = generate_randomized_agents(auction_supply, 10)
+a = Auction(auction_supply, auction_agents)
 
-a = Auction(4, auction_agents_m)
+# a = Auction(4, auction_agents_m)
 
 flag = True
 while flag:
