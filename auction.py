@@ -1,94 +1,54 @@
 import math
 
 from agent import generate_randomized_agents, ManualAgent
-from common import epsilon, Valuation
+from common import epsilon, Valuation, ConsoleLogger, BlackHoleLogger
 from solver import BendersSolver, LaviSwamyGreedyApproximator, OptimalSolver
 
 __author__ = 'Usiel'
 
 
 class Auction:
-    def __init__(self, supply, agents):
+    def __init__(self, supply, agents, log=ConsoleLogger()):
         """
         :param supply: Number of copies of identical item.
         :param agents: List of agents to participate. Need to implement query_demand(.) and query_value(.).
         """
         self.supply = supply
         self.agents = agents
-        self.approximator = LaviSwamyGreedyApproximator(self.supply, self.agents)
-        self.b = [(1. / self.approximator.gap) for i in range(0, len(self.agents))]
-        self.b.append(self.supply / self.approximator.gap)
-        self.solver = BendersSolver(self.b, self.agents)
-        self.allocations = {'X0': []}
+        self.solver = BendersSolver(self.supply,
+                                    self.agents,
+                                    LaviSwamyGreedyApproximator(self.supply, self.agents, log),
+                                    log)
+        self.expected_price = dict()
+        self.log = log
 
-    def iterate(self):
-        """
-        Performs one iteration of the Bender Auction. Optimizes current master problem, requests an approximate \
-        allocation based on current prices and utilities, calculates phi with current optimal values of master problem \
-        and then compares this with current z value.
-        :return: False if auction is done and True if a Bender's cut has been added and the auction continues.
-        """
-        iteration = len(self.allocations)
-
-        print ''
-        print '######## ITERATION %s ########' % iteration
-
-        self.solver.optimize()
-        # allocation := X
-        allocation = self.approximator.approximate(self.solver.price, self.solver.utilities)
-
-        # first_term - second_term = w*b - (c + wA) * X
-        # first_term is w*b
-        first_term = sum([-w * b for w, b in zip(self.solver.utilities.values() + [self.solver.price], self.b)])
-        # second_term is (c + wA) * X
-        second_term = 0
-        for assignment in allocation:
-            # for each x_ij which is 1 we generate c + wA which is (for MUA): v_i(j) + price * j + u_i
-            second_term += self.solver.price * assignment.quantity
-            second_term += -self.solver.utilities[assignment.agent_id]
-            second_term += assignment.valuation
-        phi = first_term - second_term
-        print 'phi = %s - %s = %s' % (first_term, second_term, phi)
-
-        # check if phi with current result of master-problem is z (with tolerance)
-        if math.fabs(phi - self.solver.z.x) < epsilon:
-            self.print_results()
-
-            # for checking we solve the program in round
-            OptimalSolver(self.supply, self.agents, self.approximator.gap)
-            return False
-        # otherwise continue and add cut based on this iteration's allocation
-        else:
-            allocation_name = 'X%s' % iteration
-            self.allocations[allocation_name] = allocation
-            self.solver.add_benders_cut(allocation, allocation_name)
-            return True
-
-    def print_results(self):
-        """
-        Prints results in console.
-        """
-        print ''
-        print '####### SUMMARY #######'
-        print ''
-        for item in self.allocations.iteritems():
-            # noinspection PyArgumentList
-            print '%s (%s)' % (item[0], self.solver.m.getConstrByName(item[0]).pi)
-            for assignment in item[1]:
-                assignment.print_me()
-            print ''
+    def start_auction(self):
+        allocations = self.solver.solve()
+        optimal_with_agent = self.calculate_social_welfare(allocations)
 
         for agent in self.agents:
-            vcg_price = sum(self.solver.m.getConstrByName(alloc[0]).pi *
-                            sum([assignment.vcg_price for assignment in alloc[1] if assignment.agent_id == agent.id])
-                            for alloc in self.allocations.iteritems())
-            if vcg_price > 0:
-                print 'Agent %s E[payment]=%s' % (agent.id, vcg_price)
+            other_agents = [a for a in self.agents if a != agent]
+            allocations_without_agent = BendersSolver(self.supply, other_agents,
+                                                      LaviSwamyGreedyApproximator(
+                                                          self.supply,
+                                                          other_agents,
+                                                          BlackHoleLogger()),
+                                                      BlackHoleLogger()).solve()
 
-        if self.solver.price_changed:
-            print 'Price has decreased at some point.'
-        print '%s iterations needed' % len(self.allocations)
-        print 'E[Social welfare] is %s' % -self.solver.z.x
+            optimal_without_agent = self.calculate_social_welfare(allocations_without_agent)
+            other_agents_valuations = sum([allocation.get_expected_social_welfare_without_agent(agent.id)
+                                           for allocation in allocations.itervalues()])
+
+            vcg_payoff = optimal_with_agent - optimal_without_agent
+            vcg_price = optimal_without_agent - other_agents_valuations
+
+            self.expected_price[agent.id] = vcg_price
+
+        for price in self.expected_price.iteritems():
+            self.log.log('Agent %s has expected VCG price %s' % (price[0], price[1]))
+
+    def calculate_social_welfare(self, allocations):
+        return sum([allocation.expected_social_welfare for allocation in allocations.itervalues()])
 
 
 # example used in paper
@@ -100,10 +60,8 @@ auction_agents_m = [agent1, agent2, agent3]
 # automatically generated
 auction_supply = 14
 auction_agents = generate_randomized_agents(auction_supply, 10)
-a = Auction(auction_supply, auction_agents)
+# a = Auction(auction_supply, auction_agents)
 
-# a = Auction(4, auction_agents_m)
+a = Auction(4, auction_agents_m)
 
-flag = True
-while flag:
-    flag = a.iterate()
+a.start_auction()

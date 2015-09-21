@@ -105,3 +105,4 @@ $RECYCLE.BIN/
 *.xml
 optimal-lp.lp
 *.sol
+*.lp
