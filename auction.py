@@ -28,14 +28,15 @@ class Auction:
 
         for agent in self.agents:
             other_agents = [a for a in self.agents if a != agent]
-            allocations_without_agent = BendersSolver(self.supply, other_agents,
+            solver = BendersSolver(self.supply, other_agents,
                                                       LaviSwamyGreedyApproximator(
                                                           self.supply,
                                                           other_agents,
                                                           BlackHoleLogger()),
-                                                      BlackHoleLogger()).solve()
+                                                      BlackHoleLogger())
+            allocations_without_agent = solver.solve()
 
-            optimal_without_agent = self.calculate_social_welfare(allocations_without_agent)
+            optimal_without_agent = -solver.z.x # = self.calculate_social_welfare(allocations_without_agent)
             other_agents_valuations = sum([allocation.get_expected_social_welfare_without_agent(agent.id)
                                            for allocation in allocations.itervalues()])
 
@@ -59,7 +60,7 @@ auction_agents_m = [agent1, agent2, agent3]
 
 # automatically generated
 auction_supply = 14
-auction_agents = generate_randomized_agents(auction_supply, 10)
+auction_agents = generate_randomized_agents(auction_supply, 50)
 # a = Auction(auction_supply, auction_agents)
 
 a = Auction(4, auction_agents_m)
