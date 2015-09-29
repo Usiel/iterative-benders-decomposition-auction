@@ -1,4 +1,5 @@
 import math
+import pprint
 
 from gurobipy.gurobipy import Model, GRB, LinExpr, GurobiError, quicksum
 
@@ -264,10 +265,12 @@ class LaviSwamyGreedyApproximator:
                 demand = agent.query_demand(price, left_supply)
                 # if there is demand we add the agent's per_item_value to possible selection.
                 if demand:
+                    pprint.pprint(demand)
                     # denominator is calculated with utility subtracted as it would have been done if we calculated
                     # the c vector as done in Fadaei 2015
                     new_utility = demand.valuation - utilities[agent.id] - demand.quantity * price
-                    if new_utility > epsilon:
+                    print '%s - %s - %s * %s' % (demand.valuation, utilities[agent.id], demand.quantity, price)
+                    if new_utility >= -epsilon:
                         per_item_values[agent.id] = new_utility / demand.quantity
                         query_responses[agent.id] = demands[agent.id] = demand
 

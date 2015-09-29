@@ -1,6 +1,6 @@
 import itertools
 import numpy as np
-from common import Valuation
+from common import Valuation, epsilon
 
 __author__ = 'Usiel'
 
@@ -19,7 +19,7 @@ class ManualAgent:
         :param valuations: List of Valuation.
         :param identifier: Optional identifier (unique).
         """
-        self.id = identifier if identifier else next_agent_id()
+        self.id = identifier if identifier >= 0 else next_agent_id()
         self.valuations = valuations
         # print 'Agent %s:' % self.id
         # for v in self.valuations:
@@ -37,8 +37,8 @@ class ManualAgent:
         best_utility = None
         for valuation in self.valuations:
             if valuation.quantity <= left_supply:
-                utility = valuation.valuation - valuation.quantity * price
-                if utility > 0. and utility > best_utility:
+                utility = (valuation.valuation - valuation.quantity * price)
+                if utility >= -epsilon and utility >= best_utility:
                     best_valuation = valuation
                     best_utility = utility
         return best_valuation
