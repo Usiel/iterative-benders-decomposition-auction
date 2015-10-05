@@ -39,9 +39,14 @@ class BendersSolver:
 
         # Initial constraints for empty allocation
         self.add_benders_cut(Allocation(), "X0")
+        self.m.addConstr(self.price_var, GRB.GREATER_EQUAL, 0, name="price_constraint")
         self.m.setObjective(self.z, GRB.MAXIMIZE)
 
         self.price_changed = False
+        self.give_second_chance = True
+        self.old_price_constraint = 0.
+        self.old_z = 0.
+        self.old_utilities = dict()
 
     @property
     def price(self):
@@ -59,6 +64,13 @@ class BendersSolver:
         :return: Returns current utilities (positive): dict(agent_id: utility)
         """
         return dict((v[0], math.fabs(v[1].x)) for v in self.utility_vars.iteritems())
+
+    @property
+    def objective(self):
+        try:
+            return self.z.x
+        except GurobiError:
+            return 0.
 
     def solve(self):
         while self.iterate():
@@ -78,6 +90,14 @@ class BendersSolver:
         self.log.log('######## ITERATION %s ########' % iteration)
 
         self.optimize()
+        no_change = self.old_z == self.objective and all([any(old_utility == utility for old_utility in self.old_utilities) for utility in self.utilities])
+        self.log.log("no change ... %s" % no_change)
+        self.old_z = self.objective
+        self.old_utilities = self.utilities
+
+        if self.m.getConstrByName("price_constraint").pi > 0:# and any([utility > 0. for utility in self.utilities.itervalues()]):
+            self.print_results()
+            return False
         # allocation := X
         allocation = self.approximator.approximate(self.price, self.utilities)
 
@@ -95,18 +115,28 @@ class BendersSolver:
         self.log.log('phi = %s - %s = %s' % (first_term, second_term, phi))
 
         # check if phi with current result of master-problem is z (with tolerance)
-        if math.fabs(phi - self.z.x) < epsilon:
-            self.remove_bad_cuts()
-            self.optimize()
-            self.set_allocation_probabilities()
-            self.print_results()
-            return False
-        # otherwise continue and add cut based on this iteration's allocation
+        if math.fabs(phi - self.z.x) < epsilon or (self.give_second_chance and no_change):
+            if not self.give_second_chance and no_change:
+                self.remove_bad_cuts()
+                self.log.log('Finished ... %s %s' % (self.give_second_chance, no_change))
+                self.set_allocation_probabilities()
+                self.print_results()
+                return False
+            else:
+                self.give_second_chance = False
+                self.log.log('no second chance for %s' % self.price)
+                self.m.remove(self.m.getConstrByName("price_constraint"))
+                self.old_price_constraint = self.old_price_constraint - .1
+                self.log.log(self.old_price_constraint)
+                self.m.addConstr(self.price_var, GRB.EQUAL, self.old_price_constraint, name="price_constraint")
+                self.old_z = False
         else:
+            self.give_second_chance = True
+            # otherwise continue and add cut based on this iteration's allocation
             allocation_name = 'X%s' % iteration
             self.allocations[allocation_name] = allocation
             self.add_benders_cut(allocation, allocation_name)
-            return True
+        return True
 
     def print_results(self):
         """
@@ -262,15 +292,14 @@ class LaviSwamyGreedyApproximator:
 
             # ask each agent for his demand at current price.
             for agent in agents_pool:
-                demand = agent.query_demand(price, left_supply)
+                demand = agent.query_demand(price, left_supply, utilities[agent.id])
                 # if there is demand we add the agent's per_item_value to possible selection.
                 if demand:
-                    pprint.pprint(demand)
                     # denominator is calculated with utility subtracted as it would have been done if we calculated
                     # the c vector as done in Fadaei 2015
                     new_utility = demand.valuation - utilities[agent.id] - demand.quantity * price
-                    print '%s - %s - %s * %s' % (demand.valuation, utilities[agent.id], demand.quantity, price)
-                    if new_utility >= -epsilon:
+                    # print '%s - %s - %s * %s' % (demand.valuation, utilities[agent.id], demand.quantity, price)
+                    if new_utility > epsilon:
                         per_item_values[agent.id] = new_utility / demand.quantity
                         query_responses[agent.id] = demands[agent.id] = demand
 

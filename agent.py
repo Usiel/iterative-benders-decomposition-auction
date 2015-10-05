@@ -25,7 +25,7 @@ class ManualAgent:
         # for v in self.valuations:
         #     print 'v(%s)=%s' % (v.quantity, v.valuation)
 
-    def query_demand(self, price, left_supply):
+    def query_demand(self, price, left_supply, base_price):
         """
         Returns quantity and valuation for this quantity, which maximizes the agent's utility. \
         Real demand query would only return j. We can however simulate a value query for j with mt demand queries.
@@ -37,7 +37,7 @@ class ManualAgent:
         best_utility = None
         for valuation in self.valuations:
             if valuation.quantity <= left_supply:
-                utility = (valuation.valuation - valuation.quantity * price)
+                utility = (valuation.valuation - valuation.quantity * price + base_price)
                 if utility >= -epsilon and utility >= best_utility:
                     best_valuation = valuation
                     best_utility = utility

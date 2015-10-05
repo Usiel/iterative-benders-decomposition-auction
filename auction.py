@@ -55,7 +55,7 @@ class Auction:
 # example used in paper
 agent1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 9.)], 1)
 agent2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 2)
-#agent3 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 4.)], 3)
+agent3 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 4.)], 3)
 auction_agents_m = [agent1, agent2]#, agent3]
 
 # automatically generated
