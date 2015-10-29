@@ -1,7 +1,7 @@
 import pprint
 from agent import ManualAgent
 from common import Valuation, ConsoleLogger, Allocation
-from solver import LaviSwamyGreedyApproximator, OptimalSolver
+from solver import LaviSwamyGreedyApproximator, OptimalSolver, NisanGreedyDemandApproximator
 
 __author__ = 'Usiel'
 
@@ -13,7 +13,7 @@ class DwSolver:
 
         self.approximator = LaviSwamyGreedyApproximator(supply, agents, ConsoleLogger())
 
-        m_range = range(0, len(self.agents) + 3)
+        m_range = range(0, len(self.agents) + 2)
         self.base = []
         for i in m_range:
             row = []
@@ -24,8 +24,8 @@ class DwSolver:
                     row += [0.]
             self.base.append(row)
         self.z = [0. for i in m_range] + [0.]
-        self.b = [1 / self.approximator.gap for i in range(0, len(self.agents))] + [supply / self.approximator.gap] + [0.] + [1.]
-        self.row_names = ['s%s' % i for i, row in enumerate(self.base) if i < len(self.base)-2] + ['p'] + ['l0']
+        self.b = [1 / self.approximator.gap for i in range(0, len(self.agents))] + [supply / self.approximator.gap] + [1.]
+        self.row_names = ['s%s' % i for i, row in enumerate(self.base) if i < len(self.base)-1] + ['l0']
         self.cost = 0.
         self.allocations = dict()
         self.allocations[0] = Allocation()
@@ -95,6 +95,8 @@ class DwSolver:
                                 if any([assignment.agent_id == agent.id for assignment in allocation.assignments])
                                 else 0
                                 for agent in self.agents])
+        #social_welfare = 1 if new_z[len(new_z)-2] == 0. else 0
+
         new_z = [z_value - (social_welfare * pivot_row_value) for z_value, pivot_row_value in zip(new_z, new_base[r] + [new_b[r]])]
 
         print 'z - c = %s' % social_welfare
@@ -148,13 +150,34 @@ a1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuatio
 a2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 1)
 agents = [a1, a2]
 
-agent1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 6.)], 0)
-agent2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 1)
-agent3 = ManualAgent([Valuation(1, 0.), Valuation(2, 1.), Valuation(3, 1.), Valuation(4, 1.)], 2)
+agent1 = ManualAgent([Valuation(1, 0.5), Valuation(2, 0.), Valuation(3, 0.), Valuation(4, 0.)], 0)
+agent2 = ManualAgent([Valuation(1, 0.), Valuation(2, 0.25), Valuation(3, 0.), Valuation(4, 0.25)], 1)
+agent3 = ManualAgent([Valuation(1, 0.), Valuation(2, 0.), Valuation(3, 0.), Valuation(4, 0.)], 2)
 auction_agents_m = [agent1, agent2, agent3]
 
-s = DwSolver(auction_agents_m, 4)
+ausubel0 = ManualAgent([Valuation(1, 123.), Valuation(2, 236), Valuation(3, 339), Valuation(4, 339), Valuation(5, 339)], 0)
+ausubel1 = ManualAgent([Valuation(1, 75.), Valuation(2, 80), Valuation(3, 83), Valuation(4, 83), Valuation(5, 83)], 1)
+ausubel2 = ManualAgent([Valuation(1, 125.), Valuation(2, 250), Valuation(3, 299), Valuation(4, 299), Valuation(5, 299)], 2)
+ausubel3 = ManualAgent([Valuation(1, 85.), Valuation(2, 150), Valuation(3, 157), Valuation(4, 157), Valuation(5, 157)], 3)
+ausubel4 = ManualAgent([Valuation(1, 45.), Valuation(2, 70), Valuation(3, 75), Valuation(4, 75), Valuation(5, 75)], 4)
+
+ausubel_agents = [ausubel0, ausubel1, ausubel2, ausubel3, ausubel4]
+
+e1 = ManualAgent([Valuation(1, 0.), Valuation(2, 4./3.)], 0)
+e2 = ManualAgent([Valuation(1, 4./3.), Valuation(2, 0)], 1)
+equi_agents = [e1, e2]
+
+a = ausubel_agents
+supp = len(a[0].valuations)
+
+s = DwSolver(a, supp)
 while raw_input("press enter to continue, q to break ") != "q":
     s.iterate()
+for item in s.allocations.iteritems():
+    if item[1].probability > 0 or True:
+        # noinspection PyArgumentList
+        print('%s (%s)' % (item[0], item[1].probability))
+        item[1].print_me(ConsoleLogger())
+        print ''
 
-OptimalSolver(4, agents, 1)
+OptimalSolver(supp, a, 1)
