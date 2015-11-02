@@ -1,4 +1,5 @@
 import math
+import pprint
 
 from gurobipy.gurobipy import Model, GRB, LinExpr, GurobiError, quicksum
 
@@ -38,9 +39,14 @@ class BendersSolver:
 
         # Initial constraints for empty allocation
         self.add_benders_cut(Allocation(), "X0")
+        self.old_price_constraint = 0.
+        self.add_price_constraint(0.)
         self.m.setObjective(self.z, GRB.MAXIMIZE)
 
         self.price_changed = False
+        self.give_second_chance = True
+        self.old_z = 0.
+        self.old_utilities = dict()
 
     @property
     def price(self):
@@ -58,6 +64,13 @@ class BendersSolver:
         :return: Returns current utilities (positive): dict(agent_id: utility)
         """
         return dict((v[0], math.fabs(v[1].x)) for v in self.utility_vars.iteritems())
+
+    @property
+    def objective(self):
+        try:
+            return self.z.x
+        except GurobiError:
+            return 0.
 
     def solve(self):
         while self.iterate():
@@ -77,6 +90,12 @@ class BendersSolver:
         self.log.log('######## ITERATION %s ########' % iteration)
 
         self.optimize()
+        no_change = self.old_z == self.objective and all(
+            [any(old_utility == utility for old_utility in self.old_utilities) for utility in self.utilities])
+        self.log.log("no change ... %s" % no_change)
+        self.old_z = self.objective
+        self.old_utilities = self.utilities
+
         # allocation := X
         allocation = self.approximator.approximate(self.price, self.utilities)
 
@@ -93,19 +112,51 @@ class BendersSolver:
         phi = first_term - second_term
         self.log.log('phi = %s - %s = %s' % (first_term, second_term, phi))
 
-        # check if phi with current result of master-problem is z (with tolerance)
-        if math.fabs(phi - self.z.x) < epsilon:
-            self.remove_bad_cuts()
+        if False and self.m.getConstrByName("price_constraint").pi > 0 and iteration > 1 and raw_input(
+                "continue? ") != "y":  # and any([utility > 0. for utility in self.utilities.itervalues()]):
+            self.m.remove(self.m.getConstrByName("price_constraint"))
             self.optimize()
             self.set_allocation_probabilities()
             self.print_results()
             return False
-        # otherwise continue and add cut based on this iteration's allocation
+
+        # check if phi with current result of master-problem is z (with tolerance)
+        if math.fabs(phi - self.z.x) < epsilon:  # or (self.give_second_chance and no_change):
+            if True:  # and not self.give_second_chance and no_change:
+                self.remove_bad_cuts()
+                # self.log.log('Finished ... %s %s' % (self.give_second_chance, no_change))
+                self.set_allocation_probabilities()
+                self.print_results()
+                return False
+            else:
+                self.give_second_chance = False
+                self.log.log('no second chance for %s' % self.price)
+                self.add_price_constraint()
+                self.old_z = False
         else:
+            self.give_second_chance = True
+            # otherwise continue and add cut based on this iteration's allocation
             allocation_name = 'X%s' % iteration
             self.allocations[allocation_name] = allocation
             self.add_benders_cut(allocation, allocation_name)
-            return True
+        self.set_allocation_probabilities()
+        return True
+
+    def add_price_constraint(self, new_price=None):
+        if True:
+            return None
+        try:
+            self.m.remove(self.m.getConstrByName("price_constraint"))
+        except GurobiError:
+            pass
+
+        if new_price != None:
+            self.old_price_constraint = new_price
+        else:
+            self.old_price_constraint -= .5
+
+        self.log.log(self.old_price_constraint)
+        self.m.addConstr(self.price_var, GRB.EQUAL, self.old_price_constraint, name="price_constraint")
 
     def print_results(self):
         """
@@ -118,10 +169,11 @@ class BendersSolver:
         self.m.write("master-program.lp")
 
         for item in self.allocations.iteritems():
-            # noinspection PyArgumentList
-            self.log.log('%s (%s)' % (item[0], item[1].probability))
-            item[1].print_me(self.log)
-            self.log.log('')
+            if item[1].probability > 0:
+                # noinspection PyArgumentList
+                self.log.log('%s (%s)' % (item[0], item[1].probability))
+                item[1].print_me(self.log)
+                self.log.log('')
 
         if self.price_changed:
             self.log.log('Price has decreased at some point.')
@@ -193,9 +245,9 @@ class OptimalSolver:
         self.m.update()
 
         for agent in agents:
-            self.m.addConstr(quicksum(self.allocation_vars[agent.id, i] for i in range(1, supply + 1)), GRB.LESS_EQUAL, 1)
+            self.m.addConstr(quicksum(self.allocation_vars[agent.id, i] for i in range(1, supply + 1)), GRB.LESS_EQUAL, 1, name="u_%s" % agent.id)
 
-        self.m.addConstr(quicksum(self.allocation_vars[agent.id, i]*i for i in range(1, supply + 1) for agent in agents), GRB.LESS_EQUAL, supply)
+        self.m.addConstr(quicksum(self.allocation_vars[agent.id, i]*i for i in range(1, supply + 1) for agent in agents), GRB.LESS_EQUAL, supply, name="price")
 
         obj_expr = LinExpr()
         for agent in agents:
@@ -206,17 +258,86 @@ class OptimalSolver:
         self.m.update()
 
         self.m.optimize()
+        #
+        # for agent in agents:
+        #     for i in range(1, supply + 1):
+        #         self.allocation_vars[agent.id, i] = self.m.addVar(vtype=GRB.CONTINUOUS, lb=0,
+        #                                                           name='x_%s_%s' % (agent.id, i))
+        #
+        # self.m.update()
+        #
+        # self.m.addConstr(quicksum(self.allocation_vars[agent.id, i] for i in range(1, supply + 1) for agent in agents),
+        #                  GRB.LESS_EQUAL, supply / gap, name="price")
+        # for agent in agents:
+        #     for i in range(1, supply):
+        #         self.m.addConstr(self.allocation_vars[agent.id, i + 1] - self.allocation_vars[agent.id, i],
+        #                          GRB.LESS_EQUAL, 0, name="chain_%s_%s" % (agent.id, i))
+        #         self.m.addConstr(self.allocation_vars[agent.id, i], GRB.LESS_EQUAL, 1. / gap,
+        #                          name="p_%s_%s" % (agent.id, i))
+        #     self.m.addConstr(self.allocation_vars[agent.id, supply], GRB.GREATER_EQUAL, 0, name="greater_%s" % agent.id)
+        #     self.m.addConstr(self.allocation_vars[agent.id, 1], GRB.LESS_EQUAL, 1. / gap, name="u_%s" % agent.id)
+        #
+        # # m.addConstr(x11 + 2*x12 + 3*x13 + 4*x14 + x21 + 2*x22 + 3*x23 + 4*x24, GRB.LESS_EQUAL, 4, name="p_an")
+        #
+        # obj_expr = LinExpr()
+        # for agent in agents:
+        #     prev_val = None
+        #     for valuation in agent.valuations:
+        #         try:
+        #             prev_val = next(val for val in agent.valuations if val.quantity == valuation.quantity - 1)
+        #         except StopIteration:
+        #             pass
+        #         marginal_value = valuation.valuation - (prev_val.valuation if prev_val else 0)
+        #         obj_expr.addTerms(marginal_value, self.allocation_vars[agent.id, valuation.quantity])
+        # self.m.setObjective(obj_expr, GRB.MAXIMIZE)
+        #
+        # self.m.optimize()
+
+        for v in [v for v in self.m.getVars() if v.x != 0.]:
+            print('%s %g' % (v.varName, v.x))
+
+        print ''
+        print 'CONSTRAINTS:'
+
+        for l in self.m.getConstrs():
+            if l.Pi > 0:
+                print('%s %g' % (l.constrName, l.Pi))
+
+        print self.m.getObjective().getValue()
+
         # print 'Optimal solution:'
         # for v in self.m.getVars():
         #     print('%s %g' % (v.varName, v.x))
         # for l in self.m.getConstrs():
         #     if l.Pi > 0:
         #         print('%s %g' % (l.constrName, l.Pi))
-        print 'OPT social welfare %s | %s/%s=%s' % (self.m.getObjective().getValue(), self.m.getObjective().getValue(), gap, self.m.getObjective().getValue()/gap)
+        print 'OPT social welfare %s | %s/%s=%s' % (
+        self.m.getObjective().getValue(), self.m.getObjective().getValue(), gap,
+        self.m.getObjective().getValue() / gap)
 
         self.m.write('optimal-lp.lp')
         self.m.write('optimal-lp.sol')
 
+class NisanGreedyDemandApproximator:
+    def __init__(self, supply, agents, log):
+        self.supply = supply
+        self.agents = agents
+        self.log = log
+
+    @property
+    def gap(self):
+        return 2.
+
+    def approximate(self, price, utilities):
+        allocation = Allocation()
+        for agent in self.agents:
+            demand = agent.query_demand(price, self.supply, utilities[agent.id])
+            if demand:
+                allocation.assignments += [Assignment(demand.quantity, agent.id, demand.valuation)]
+
+        allocation.print_me(self.log)
+
+        return allocation
 
 class LaviSwamyGreedyApproximator:
     def __init__(self, supply, agents, log):
@@ -250,50 +371,48 @@ class LaviSwamyGreedyApproximator:
 
     def allocate(self, agents, price, utilities):
         left_supply = self.supply
-        allocation = Allocation()
-        agents_pool = agents[:]
-        summed_valuations = 0
-        demands = dict()
+        assignments = [Assignment(0, agent.id, 0) for agent in agents]
         # as done in Lavi & Swamy 2005 mostly
-        while agents_pool and left_supply > 0:
+        margin = 0
+        while left_supply > 0 and left_supply - margin >= 0:
             query_responses = dict()
-            per_item_values = dict()
+            per_item_utilities = dict()
 
             # ask each agent for his demand at current price.
-            for agent in agents_pool:
-                demand = agent.query_demand(price, left_supply)
+            for agent in agents:
+                assignment = next(assignment for assignment in assignments if assignment.agent_id == agent.id)
+                marginal_value = agent.marginal_value_query(margin, assignment.quantity)
                 # if there is demand we add the agent's per_item_value to possible selection.
-                if demand:
+                if marginal_value != None:
                     # denominator is calculated with utility subtracted as it would have been done if we calculated
                     # the c vector as done in Fadaei 2015
-                    new_utility = demand.valuation - utilities[agent.id] - demand.quantity * price
-                    if new_utility > epsilon:
-                        per_item_values[agent.id] = new_utility / demand.quantity
-                        query_responses[agent.id] = demands[agent.id] = demand
+                    marginal_utility = marginal_value - utilities[agent.id] - (assignment.quantity + margin) * price
+                    # print '%s - %s - %s * %s' % (demand.valuation, utilities[agent.id], demand.quantity, price)
+                    if marginal_utility > 0.:
+                        per_item_utilities[agent.id] = marginal_utility / (assignment.quantity + margin)
+                        query_responses[agent.id] = marginal_value
 
             # if there was any demand we look for the agent with the maximal per-item-value
-            if per_item_values:
-                best_agent_id = max(per_item_values.iterkeys(),
-                                    key=(lambda key: per_item_values[key]))
+            if per_item_utilities:
+                best_agent_id = max(per_item_utilities.iterkeys(),
+                                    key=(lambda key: per_item_utilities[key]))
 
                 # we allocate the items to the agent, therefore we remove these from the supply
-                left_supply -= query_responses[best_agent_id].quantity
-                # maybe check if this is valid?
-                agents_pool = [agent for agent in agents_pool if agent.id != best_agent_id]
-
-                allocation.append(Assignment(query_responses[best_agent_id].quantity,
-                                             best_agent_id,
-                                             query_responses[best_agent_id].valuation))
-                summed_valuations += query_responses[best_agent_id].valuation - utilities[
-                    best_agent_id] - price * query_responses[best_agent_id].quantity
+                left_supply -= margin
+                assignments = [assignment if
+                               assignment.agent_id != best_agent_id else
+                               Assignment(assignment.quantity + margin, best_agent_id, assignment.valuation + query_responses[best_agent_id]) for assignment in assignments]
             else:
-                break
+                margin += 1
+
+        allocation = Allocation([assignment for assignment in assignments if assignment.quantity > 0])
+        summed_valuations = sum(assignment.valuation for assignment in assignments)
 
         # check if assigning all items to one agent is better
         for agent in agents:
-            valuation = agent.query_value(self.supply)
-            if valuation.valuation - utilities[agent.id] - self.supply * price > summed_valuations:
-                summed_valuations = valuation.valuation
-                allocation = Allocation([Assignment(self.supply, agent.id, valuation.valuation)])
+            marginal_value = agent.query_value(self.supply)
+            if marginal_value.valuation - utilities[agent.id] - marginal_value.quantity * price > summed_valuations:
+                summed_valuations = marginal_value.valuation
+                allocation = Allocation([Assignment(self.supply, agent.id, marginal_value.valuation)])
 
         return allocation

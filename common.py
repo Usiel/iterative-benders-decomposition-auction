@@ -40,6 +40,10 @@ class Allocation:
         self.probability = probability
 
     @property
+    def quantity_assigned(self):
+        return sum([assignment.quantity for assignment in self.assignments])
+
+    @property
     def expected_social_welfare(self):
         if not self.probability:
             return 0
@@ -52,6 +56,7 @@ class Allocation:
 
     def append(self, assignment):
         self.assignments.append(assignment)
+
 
     def print_me(self, log):
         for assignment in self.assignments:
