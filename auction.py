@@ -69,7 +69,7 @@ class AscendingAuction:
         self.marginal_economies = {key.id: None for key in self.agents}
         self.log = log
         self.marginal_economies = {key.id: None for key in self.agents}
-        self.step_size = 0.1
+        self.step_size = 0.05
 
     def start_auction(self):
         p = 0.
@@ -116,10 +116,11 @@ class AscendingAuction:
         for agent in self.agents:
             other_agents_valuations = sum([allocation.get_expected_social_welfare_without_agent(agent.id)
                                            for allocation in allocations.itervalues()])
-            self.expected_price[agent.id] = self.marginal_economies[agent.id] - other_agents_valuations
+            # if marginal economy exists, otherwise use full economy (can happen, if agent i does not drop out
+            marginal_economy = self.marginal_economies[agent.id] if self.marginal_economies[agent.id] else -solver.objective
+            self.expected_price[agent.id] = marginal_economy  - other_agents_valuations
 
         for price in self.expected_price.iteritems():
-
             self.log.log('Agent %s has expected VCG price %s' % (price[0], price[1]))
 
     def get_demands_at_price(self, price, agents):
@@ -149,15 +150,15 @@ auction_agents_m = [agent1, agent2, agent3]
 
 # automatically generated
 auction_supply = 9
-auction_agents = generate_randomized_agents(auction_supply, 2)
+auction_agents = generate_randomized_agents(auction_supply, 5)
 a = Auction(auction_supply, auction_agents)
 
 a1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 9.)], 0)
 a2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 1)
 agents_non_ascending = [a1, a2]
 
-agent1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 6.)], 0)
-agent2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 1)
+agent1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 10.)], 0)
+agent2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 15.)], 1)
 agent3 = ManualAgent([Valuation(1, 0.), Valuation(2, 1.), Valuation(3, 1.), Valuation(4, 1.)], 2)
 auction_agents_m = [agent1, agent2, agent3]
 
@@ -182,15 +183,24 @@ e1 = ManualAgent([Valuation(1, 0.), Valuation(2, 2.)], 0)
 e2 = ManualAgent([Valuation(1, 1.), Valuation(2, 1.)], 1)
 equi_agents = [e1, e2]
 
-a = agents_non_ascending
+a = auction_agents
 supp = len(a[0].valuations)
 
-# OptimalSolver(supp, a, 2)
+OptimalSolver(supp, a, 2)
 
-# auction = Auction(supp, a)
+auction2 = Auction(supp, copy.deepcopy(a))
 auction = AscendingAuction(supp, a)
+
+print''
+print '############### ASCENDING AUCTION'
+print''
 auction.start_auction()
 
+print''
+print '############### DW DECO AUCTION'
+print ''
+auction2.start_auction()
+#
 # for agent in ag:
 # print agent.id
 # pprint.pprint(agent.queried)

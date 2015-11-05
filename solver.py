@@ -6,7 +6,7 @@ from gurobipy.gurobipy import Model, GRB, LinExpr, GurobiError, quicksum
 from common import Assignment, epsilon, Allocation
 
 __author__ = 'Usiel'
-
+iteration_abort_threshold = 100
 
 class BendersSolver:
     def __init__(self, supply, agents, approximator, log):
@@ -112,27 +112,12 @@ class BendersSolver:
         phi = first_term - second_term
         self.log.log('phi = %s - %s = %s' % (first_term, second_term, phi))
 
-        if False and self.m.getConstrByName("price_constraint").pi > 0 and iteration > 1 and raw_input(
-                "continue? ") != "y":  # and any([utility > 0. for utility in self.utilities.itervalues()]):
-            self.m.remove(self.m.getConstrByName("price_constraint"))
-            self.optimize()
-            self.set_allocation_probabilities()
-            self.print_results()
-            return False
-
         # check if phi with current result of master-problem is z (with tolerance)
-        if math.fabs(phi - self.z.x) < epsilon:  # or (self.give_second_chance and no_change):
-            if True:  # and not self.give_second_chance and no_change:
+        if math.fabs(phi - self.z.x) < epsilon or iteration > iteration_abort_threshold:
                 self.remove_bad_cuts()
-                # self.log.log('Finished ... %s %s' % (self.give_second_chance, no_change))
                 self.set_allocation_probabilities()
                 self.print_results()
                 return False
-            else:
-                self.give_second_chance = False
-                self.log.log('no second chance for %s' % self.price)
-                self.add_price_constraint()
-                self.old_z = False
         else:
             self.give_second_chance = True
             # otherwise continue and add cut based on this iteration's allocation
@@ -388,7 +373,7 @@ class LaviSwamyGreedyApproximator:
                     # the c vector as done in Fadaei 2015
                     marginal_utility = marginal_value - utilities[agent.id] - (assignment.quantity + margin) * price
                     # print '%s - %s - %s * %s' % (demand.valuation, utilities[agent.id], demand.quantity, price)
-                    if marginal_utility > 0.:
+                    if marginal_utility > 0. and assignment.quantity + margin > 0:
                         per_item_utilities[agent.id] = marginal_utility / (assignment.quantity + margin)
                         query_responses[agent.id] = marginal_value
 

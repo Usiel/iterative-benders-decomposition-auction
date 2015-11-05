@@ -101,20 +101,18 @@ class DwSolver:
 
         print 'z - c = %s' % social_welfare
 
-        predicted_allocation = None #self.approximator.approximate(self.z_to_price(new_z), {k: -u for k,u in self.z_to_utilities(new_z).iteritems()})
-        price_row_selected = r == len(self.agents)
-        if False and not price_row_selected and (len(predicted_allocation.assignments) == 0 or any(b < 0 for b in new_b)) and raw_input('danger... OK y?') != 'y':
-            print 'We need to increase the price I think or we are finished!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-        else:
-            self.allocations[len(self.allocations)] = allocation
-            self.row_names[r] = 'l%s' % (len(self.allocations)-1)
-            self.base = new_base
-            self.b = new_b
-            self.z = new_z
+        self.allocations[len(self.allocations)] = allocation
+        self.row_names[r] = 'l%s' % (len(self.allocations)-1)
+        self.base = new_base
+        self.b = new_b
+        self.z = new_z
 
         self.print_tableau()
 
-        return True
+        if social_welfare > 0:
+            return True
+        else:
+            return False
 
     def get_leaving_row_index(self, b, y_k, base):
         # return int(raw_input('leaving var row index: '))
@@ -146,7 +144,7 @@ class DwSolver:
                 print ''
 
 
-a1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 9.)], 0)
+a1 = ManualAgent([Valuation(1, 6.), Valuation(2, 6.), Valuation(3, 6.), Valuation(4, 90.)], 0)
 a2 = ManualAgent([Valuation(1, 1.), Valuation(2, 4.), Valuation(3, 4.), Valuation(4, 6.)], 1)
 agents = [a1, a2]
 
@@ -171,8 +169,8 @@ a = ausubel_agents
 supp = len(a[0].valuations)
 
 s = DwSolver(a, supp)
-while raw_input("press enter to continue, q to break ") != "q":
-    s.iterate()
+while s.iterate():
+    pass
 for item in s.allocations.iteritems():
     if item[1].probability > 0 or True:
         # noinspection PyArgumentList
@@ -180,4 +178,4 @@ for item in s.allocations.iteritems():
         item[1].print_me(ConsoleLogger())
         print ''
 
-OptimalSolver(supp, a, 1)
+OptimalSolver(supp, a, 2)
