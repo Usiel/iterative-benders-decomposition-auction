@@ -216,7 +216,7 @@ class BendersSolver:
 
 
 class OptimalSolver:
-    def __init__(self, supply, agents, gap):
+    def __init__(self, supply, agents, gap, restriced=False):
         print ''
         print 'Optimal Solver:'
 
@@ -231,6 +231,11 @@ class OptimalSolver:
 
         for agent in agents:
             self.m.addConstr(quicksum(self.allocation_vars[agent.id, i] for i in range(1, supply + 1)), GRB.LESS_EQUAL, 1, name="u_%s" % agent.id)
+            if restriced:
+                for valuation in agent.valuations:
+                    if valuation.valuation > 0:
+                        self.m.addConstr(self.allocation_vars[agent.id, valuation.quantity] >= epsilon, name="not_zero_%s_%s" % (agent.id, valuation.quantity))
+
 
         self.m.addConstr(quicksum(self.allocation_vars[agent.id, i]*i for i in range(1, supply + 1) for agent in agents), GRB.LESS_EQUAL, supply, name="price")
 

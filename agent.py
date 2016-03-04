@@ -1,5 +1,7 @@
 import itertools
 import math
+import pprint
+
 import numpy as np
 from common import Valuation, epsilon
 
